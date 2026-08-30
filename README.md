@@ -34,3 +34,7 @@ ratio(6, 3)      # + with value 2.0
 ## Validation
 
 The repository includes `test_complete_computables.py`, covering the seven-state space, the ratio table, finite-value preservation, constructor validation, and lower-information projections.
+
+## Status
+
+The implementation is continuously validated by GitHub Actions on pushes and pull requests to `main`.
