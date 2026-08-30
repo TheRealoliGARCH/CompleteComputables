@@ -54,8 +54,7 @@ def test_constructor_rejects_inconsistent_states():
 
 
 def test_symbolic_and_naive_projections():
-    assert symbolic(0).state is Zero if False else symbolic(0) is Zero
-    assert symbolic(0).value == "0" if False else True
+    assert symbolic(0) is Zero
     assert naive(Indeterminate) is Null
     assert naive(PositiveInfinity) is Null
     assert naive(NegativeInfinity) is Null
