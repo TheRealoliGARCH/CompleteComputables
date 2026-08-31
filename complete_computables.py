@@ -1,14 +1,4 @@
-"""Complete Computables: a seven-state ratio valuation system.
-
-The implementation follows the specification in
-"The Complete Computables as the Minimal System for Financial Economics":
-
-    C = {Null, Indeterminate, 0, +, -, +Infinity, -Infinity}
-
-The module provides explicit state objects, ratio evaluation, symbolic and
-naive projections, and a small validation surface suitable for use by
-financial-economic models.
-"""
+"""Complete Computables: a seven-state computational system."""
 
 from __future__ import annotations
 
@@ -31,7 +21,6 @@ class ComputableState(str, Enum):
     NEGATIVE_INFINITY = "-Infinity"
 
 
-# Public aliases matching the terminology of the paper.
 Null = ComputableState.NULL
 Indeterminate = ComputableState.INDETERMINATE
 Zero = ComputableState.ZERO
@@ -43,75 +32,50 @@ NegativeInfinity = ComputableState.NEGATIVE_INFINITY
 
 @dataclass(frozen=True)
 class CompleteComputable:
-    """A value represented by a Complete Computable state.
-
-    For finite real values, ``value`` is retained so that the seven-state
-    abstraction can still be embedded in ordinary arithmetic.  For the
-    distinguished non-real outcomes, ``value`` is ``None``.
-    """
+    """A Complete Computable state with an optional finite real value."""
 
     state: ComputableState
     value: float | None = None
 
     def __post_init__(self) -> None:
         if self.state in {
-            ComputableState.NULL,
-            ComputableState.INDETERMINATE,
-            ComputableState.POSITIVE_INFINITY,
-            ComputableState.NEGATIVE_INFINITY,
-        }:
-            if self.value is not None:
-                raise ValueError(f"{self.state.value} cannot carry a finite value")
-        elif self.state == ComputableState.ZERO:
-            if self.value is not None and self.value != 0:
-                raise ValueError("Zero state must have value 0")
-        elif self.state == ComputableState.POSITIVE:
-            if self.value is not None and self.value <= 0:
-                raise ValueError("Positive state must have a positive value")
-        elif self.state == ComputableState.NEGATIVE:
-            if self.value is not None and self.value >= 0:
-                raise ValueError("Negative state must have a negative value")
+            Null,
+            Indeterminate,
+            PositiveInfinity,
+            NegativeInfinity,
+        } and self.value is not None:
+            raise ValueError(f"{self.state.value} cannot carry a finite value")
+        if self.state == Zero and self.value not in (None, 0, 0.0):
+            raise ValueError("Zero state must have value 0")
+        if self.state == Positive and self.value is not None and self.value <= 0:
+            raise ValueError("Positive state must have a positive value")
+        if self.state == Negative and self.value is not None and self.value >= 0:
+            raise ValueError("Negative state must have a negative value")
 
     @classmethod
     def from_value(cls, value: Any) -> "CompleteComputable":
-        """Construct a Complete Computable from a supported numeric value.
-
-        ``None`` maps to Null.  Naive IEEE ``nan`` is intentionally rejected:
-        indeterminacy is represented explicitly by ``Indeterminate``.
-        """
         if value is None:
-            return cls(ComputableState.NULL)
+            return cls(Null)
         if isinstance(value, bool) or not isinstance(value, Real):
             raise TypeError("value must be a real number or None")
         value = float(value)
-        if value != value:  # NaN
-            raise ValueError("NaN is not a Complete Computable state")
+        if value != value:
+            raise ValueError("NaN is represented by Indeterminate, not a numeric value")
         if value == inf:
-            return cls(ComputableState.POSITIVE_INFINITY)
+            return cls(PositiveInfinity)
         if value == -inf:
-            return cls(ComputableState.NEGATIVE_INFINITY)
+            return cls(NegativeInfinity)
         if value == 0:
-            return cls(ComputableState.ZERO, 0.0)
-        if value > 0:
-            return cls(ComputableState.POSITIVE, value)
-        return cls(ComputableState.NEGATIVE, value)
+            return cls(Zero, 0.0)
+        return cls(Positive if value > 0 else Negative, value)
 
     @property
     def is_finite(self) -> bool:
-        return self.state in {
-            ComputableState.ZERO,
-            ComputableState.POSITIVE,
-            ComputableState.NEGATIVE,
-        }
+        return self.state in {Zero, Positive, Negative}
 
     def sign(self) -> ComputableState:
-        """Return the finite sign state; reject non-finite/non-ordinary states."""
-        if self.state not in {
-            ComputableState.ZERO,
-            ComputableState.POSITIVE,
-            ComputableState.NEGATIVE,
-        }:
-            raise ValueError(f"{self.state.value} has no ordinary finite sign")
+        if not self.is_finite:
+            raise ValueError(f"{self.state.value} has no finite sign")
         return self.state
 
     def __str__(self) -> str:
@@ -122,7 +86,6 @@ StateLike = Union[CompleteComputable, ComputableState, Real, None]
 
 
 def coerce(value: StateLike) -> CompleteComputable:
-    """Normalize Python numeric values and Complete Computables."""
     if isinstance(value, CompleteComputable):
         return value
     if isinstance(value, ComputableState):
@@ -130,104 +93,152 @@ def coerce(value: StateLike) -> CompleteComputable:
     return CompleteComputable.from_value(value)
 
 
+def _finite_ratio(a: CompleteComputable, b: CompleteComputable) -> CompleteComputable:
+    assert a.value is not None and b.value is not None
+    return CompleteComputable.from_value(a.value / b.value)
+
+
 def ratio(numerator: StateLike, denominator: StateLike) -> CompleteComputable:
-    """Evaluate the Complete Computable ratio ``numerator / denominator``.
+    """Evaluate a Complete Computable ratio.
 
-    This implements the paper's decision structure:
-
-    * Null in either argument -> Null
-    * 0 / 0 -> Indeterminate
-    * nonzero / 0 -> signed infinity
-    * otherwise -> ordinary sign/finite ratio
-
-    Explicit infinities are also handled so that the state space remains
-    closed for computational use.
+    The primary rules are the paper's rules: Null propagates; 0/0 is
+    Indeterminate; nonzero finite values divided by zero produce signed
+    infinity; finite/finite preserves the numerical quotient.
     """
-    a = coerce(numerator)
-    b = coerce(denominator)
+    a, b = coerce(numerator), coerce(denominator)
 
-    if a.state == ComputableState.NULL or b.state == ComputableState.NULL:
-        return CompleteComputable(ComputableState.NULL)
-
-    if a.state == ComputableState.INDETERMINATE or b.state == ComputableState.INDETERMINATE:
-        return CompleteComputable(ComputableState.INDETERMINATE)
-
-    # Finite denominator equal to zero.
-    if b.state == ComputableState.ZERO:
-        if a.state == ComputableState.ZERO:
-            return CompleteComputable(ComputableState.INDETERMINATE)
-        if a.state in {ComputableState.POSITIVE, ComputableState.POSITIVE_INFINITY}:
-            return CompleteComputable(ComputableState.POSITIVE_INFINITY)
-        if a.state in {ComputableState.NEGATIVE, ComputableState.NEGATIVE_INFINITY}:
-            return CompleteComputable(ComputableState.NEGATIVE_INFINITY)
-
-    # Explicit infinity divided by infinity is left indeterminate.
-    if a.state in {ComputableState.POSITIVE_INFINITY, ComputableState.NEGATIVE_INFINITY} and b.state in {
-        ComputableState.POSITIVE_INFINITY,
-        ComputableState.NEGATIVE_INFINITY,
+    if a.state == Null or b.state == Null:
+        return CompleteComputable(Null)
+    if a.state == Indeterminate or b.state == Indeterminate:
+        return CompleteComputable(Indeterminate)
+    if b.state == Zero:
+        if a.state == Zero:
+            return CompleteComputable(Indeterminate)
+        if a.state in {Positive, PositiveInfinity}:
+            return CompleteComputable(PositiveInfinity)
+        if a.state in {Negative, NegativeInfinity}:
+            return CompleteComputable(NegativeInfinity)
+    if a.is_finite and b.is_finite:
+        return _finite_ratio(a, b)
+    if a.is_finite and b.state in {PositiveInfinity, NegativeInfinity}:
+        return CompleteComputable(Zero, 0.0)
+    if a.state in {PositiveInfinity, NegativeInfinity} and b.state in {
+        PositiveInfinity,
+        NegativeInfinity,
     }:
-        return CompleteComputable(ComputableState.INDETERMINATE)
+        return CompleteComputable(Indeterminate)
+    if a.state in {PositiveInfinity, NegativeInfinity} and b.is_finite:
+        assert b.value is not None
+        positive = (a.state == PositiveInfinity) == (b.value > 0)
+        return CompleteComputable(PositiveInfinity if positive else NegativeInfinity)
+    raise ValueError(f"Unsupported ratio: {a.state.value}/{b.state.value}")
 
-    # Finite / finite can preserve the actual value.
+
+def multiply(left: StateLike, right: StateLike) -> CompleteComputable:
+    """Multiply Complete Computables using the same state semantics."""
+    a, b = coerce(left), coerce(right)
+    if a.state == Null or b.state == Null:
+        return CompleteComputable(Null)
+    if a.state == Indeterminate or b.state == Indeterminate:
+        return CompleteComputable(Indeterminate)
     if a.is_finite and b.is_finite:
         assert a.value is not None and b.value is not None
-        return CompleteComputable.from_value(a.value / b.value)
-
-    # Finite / infinity -> zero with the sign determined by the quotient.
-    if a.is_finite and b.state in {
-        ComputableState.POSITIVE_INFINITY,
-        ComputableState.NEGATIVE_INFINITY,
+        return CompleteComputable.from_value(a.value * b.value)
+    if (a.state == Zero and b.state in {PositiveInfinity, NegativeInfinity}) or (
+        b.state == Zero and a.state in {PositiveInfinity, NegativeInfinity}
+    ):
+        return CompleteComputable(Indeterminate)
+    if a.state in {PositiveInfinity, NegativeInfinity} and b.state in {
+        PositiveInfinity,
+        NegativeInfinity,
     }:
+        positive = (a.state == PositiveInfinity) == (b.state == PositiveInfinity)
+        return CompleteComputable(PositiveInfinity if positive else NegativeInfinity)
+    if a.state in {PositiveInfinity, NegativeInfinity} and b.is_finite:
+        assert b.value is not None
+        if b.value == 0:
+            return CompleteComputable(Indeterminate)
+        positive = (a.state == PositiveInfinity) == (b.value > 0)
+        return CompleteComputable(PositiveInfinity if positive else NegativeInfinity)
+    if b.state in {PositiveInfinity, NegativeInfinity} and a.is_finite:
         assert a.value is not None
         if a.value == 0:
-            return CompleteComputable(ComputableState.ZERO, 0.0)
-        return CompleteComputable(ComputableState.ZERO, 0.0)
-
-    # Infinity / finite nonzero -> signed infinity.
-    if a.state in {ComputableState.POSITIVE_INFINITY, ComputableState.NEGATIVE_INFINITY} and b.is_finite:
-        assert b.value is not None
-        positive = (a.state == ComputableState.POSITIVE_INFINITY) == (b.value > 0)
-        return CompleteComputable(
-            ComputableState.POSITIVE_INFINITY if positive else ComputableState.NEGATIVE_INFINITY
-        )
-
-    raise ValueError(f"Unsupported Complete Computable ratio: {a.state.value}/{b.state.value}")
+            return CompleteComputable(Indeterminate)
+        positive = (b.state == PositiveInfinity) == (a.value > 0)
+        return CompleteComputable(PositiveInfinity if positive else NegativeInfinity)
+    raise ValueError(f"Unsupported product: {a.state.value}*{b.state.value}")
 
 
 def symbolic(value: StateLike) -> ComputableState:
-    """Project a Complete Computable to the five Symbolic Computables."""
+    """Project to the five Symbolic Computables."""
     state = coerce(value).state
-    if state in {ComputableState.POSITIVE_INFINITY, ComputableState.NEGATIVE_INFINITY}:
-        raise ValueError("Symbolic Computables cannot preserve the sign of infinity")
+    if state in {PositiveInfinity, NegativeInfinity}:
+        raise ValueError("Symbolic projection loses infinity information")
     return state
 
 
 def naive(value: StateLike) -> ComputableState:
-    """Project a Complete Computable to the four Naive Computables."""
+    """Project to the four Naive Computables."""
     state = coerce(value).state
-    if state in {
-        ComputableState.INDETERMINATE,
-        ComputableState.POSITIVE_INFINITY,
-        ComputableState.NEGATIVE_INFINITY,
-    }:
-        return ComputableState.NULL
+    if state in {Indeterminate, PositiveInfinity, NegativeInfinity}:
+        return Null
     return state
 
 
+# The paper's information ordering is partial: 0, +, and - are incomparable.
+_INFORMATION_RANK = {
+    Null: 0,
+    Indeterminate: 1,
+    Zero: 2,
+    Positive: 2,
+    Negative: 2,
+    PositiveInfinity: 3,
+    NegativeInfinity: 3,
+}
+
+
+def information_rank(value: StateLike) -> int:
+    """Return the level in the paper's information hierarchy."""
+    return _INFORMATION_RANK[coerce(value).state]
+
+
+def at_least_as_informative(left: StateLike, right: StateLike) -> bool:
+    """Return whether ``left`` is at least as informative as ``right``.
+
+    This implements the hierarchy by level.  The finite states 0, +, and -
+    remain mutually incomparable; the two infinity states are likewise kept
+    distinct.
+    """
+    a, b = coerce(left).state, coerce(right).state
+    if a == b:
+        return True
+    if b == Null:
+        return True
+    if a == Null:
+        return False
+    if b == Indeterminate:
+        return a in {
+            Indeterminate,
+            Zero,
+            Positive,
+            Negative,
+            PositiveInfinity,
+            NegativeInfinity,
+        }
+    if a == Indeterminate:
+        return b == Indeterminate
+    if b in {Zero, Positive, Negative}:
+        return a == b or a in {PositiveInfinity, NegativeInfinity}
+    if b == PositiveInfinity:
+        return a == PositiveInfinity
+    if b == NegativeInfinity:
+        return a == NegativeInfinity
+    return _INFORMATION_RANK[a] >= _INFORMATION_RANK[b]
+
+
 COMPLETE_COMPUTABLES = tuple(ComputableState)
-SYMBOLIC_COMPUTABLES = (
-    ComputableState.NULL,
-    ComputableState.INDETERMINATE,
-    ComputableState.ZERO,
-    ComputableState.POSITIVE,
-    ComputableState.NEGATIVE,
-)
-NAIVE_COMPUTABLES = (
-    ComputableState.NULL,
-    ComputableState.ZERO,
-    ComputableState.POSITIVE,
-    ComputableState.NEGATIVE,
-)
+SYMBOLIC_COMPUTABLES = (Null, Indeterminate, Zero, Positive, Negative)
+NAIVE_COMPUTABLES = (Null, Zero, Positive, Negative)
 
 
 __all__ = [
@@ -245,6 +256,9 @@ __all__ = [
     "NegativeInfinity",
     "coerce",
     "ratio",
+    "multiply",
     "symbolic",
     "naive",
+    "information_rank",
+    "at_least_as_informative",
 ]
