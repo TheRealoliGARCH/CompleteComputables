@@ -2,24 +2,25 @@
 
 Implementation of the seven-state **Complete Computables** framework described in *The Complete Computables as the Minimal System for Financial Economics*.
 
-The state space is
+## State space
 
 $$
 \mathcal C = \{\mathrm{Null},\mathrm{Indeterminate},0,+,-,+\infty,-\infty\}.
 $$
 
-## Core behavior
+The implementation keeps the distinguished states explicit rather than collapsing them into ordinary IEEE floating-point values.
 
-The `ratio()` function implements the paper's ratio decision rules:
+## Core operations
 
-- Null in either argument returns `Null`.
-- `0 / 0` returns `Indeterminate`.
-- A nonzero finite numerator divided by zero returns signed infinity.
-- Ordinary finite ratios preserve their numerical value and sign.
+- `ratio(a, b)` implements the specified ratio decision rules.
+- `multiply(a, b)` provides sign-preserving multiplication over the extended state space.
+- `CompleteComputable.from_value(x)` classifies real numeric inputs.
+- `symbolic(x)` projects to the five Symbolic Computables.
+- `naive(x)` projects to the four Naive Computables.
+- `information_rank(x)` exposes the hierarchy level.
+- `at_least_as_informative(a, b)` implements the information comparison while retaining incomparability among `0`, `+`, and `-`.
 
-The module also exposes the five-state Symbolic Computables and four-state Naive Computables as explicit projections.
-
-## Usage
+## Ratio examples
 
 ```python
 from complete_computables import ratio
@@ -31,10 +32,12 @@ ratio(-2, 0)     # -Infinity
 ratio(6, 3)      # + with value 2.0
 ```
 
+## Information hierarchy
+
+The paper distinguishes seven Complete Computables from the lower-information Symbolic and Naive systems. The implementation therefore treats the finite states `0`, `+`, and `-` as distinct and does not impose an artificial ordering between them.
+
 ## Validation
 
-The repository includes `test_complete_computables.py`, covering the seven-state space, the ratio table, finite-value preservation, constructor validation, and lower-information projections.
+`test_complete_computables.py` covers the state space, ratio rules, finite-value preservation, constructor invariants, projections, extended-state arithmetic, and information ordering.
 
-## Status
-
-The implementation is continuously validated by GitHub Actions on pushes and pull requests to `main`.
+GitHub Actions validates pushes and pull requests to `main`. If the account-level Actions spending limit prevents runner allocation, CI remains an infrastructure constraint rather than a test result.
