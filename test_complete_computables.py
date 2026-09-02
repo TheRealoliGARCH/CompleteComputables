@@ -11,6 +11,7 @@ from complete_computables import (
     PositiveInfinity,
     Zero,
     at_least_as_informative,
+    information_comparable,
     information_rank,
     multiply,
     naive,
@@ -108,14 +109,27 @@ def test_extended_ratios():
     assert ratio(NegativeInfinity, NegativeInfinity).state is Indeterminate
 
 
-def test_information_hierarchy():
+def test_information_hierarchy_is_a_partial_order():
     assert information_rank(Null) == 0
     assert information_rank(Indeterminate) == 1
     assert information_rank(Zero) == 2
     assert information_rank(PositiveInfinity) == 3
+    assert at_least_as_informative(Indeterminate, Null)
     assert at_least_as_informative(Positive, Indeterminate)
     assert at_least_as_informative(PositiveInfinity, Positive)
+    assert at_least_as_informative(NegativeInfinity, Negative)
     assert not at_least_as_informative(Positive, Negative)
+    assert not at_least_as_informative(Negative, Positive)
+    assert not at_least_as_informative(PositiveInfinity, NegativeInfinity)
+    assert not at_least_as_informative(NegativeInfinity, PositiveInfinity)
     assert not at_least_as_informative(Indeterminate, Positive)
     assert at_least_as_informative(PositiveInfinity, Null)
-    assert at_least_as_informative(NegativeInfinity, NegativeInfinity)
+
+
+def test_information_comparability_distinguishes_incomparable_states():
+    assert information_comparable(Null, Positive)
+    assert information_comparable(Indeterminate, NegativeInfinity)
+    assert information_comparable(Positive, PositiveInfinity)
+    assert not information_comparable(Zero, Positive)
+    assert not information_comparable(Positive, Negative)
+    assert not information_comparable(PositiveInfinity, NegativeInfinity)
