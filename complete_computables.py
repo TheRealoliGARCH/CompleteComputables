@@ -38,12 +38,7 @@ class CompleteComputable:
     value: float | None = None
 
     def __post_init__(self) -> None:
-        if self.state in {
-            Null,
-            Indeterminate,
-            PositiveInfinity,
-            NegativeInfinity,
-        } and self.value is not None:
+        if self.state in {Null, Indeterminate, PositiveInfinity, NegativeInfinity} and self.value is not None:
             raise ValueError(f"{self.state.value} cannot carry a finite value")
         if self.state == Zero and self.value not in (None, 0, 0.0):
             raise ValueError("Zero state must have value 0")
@@ -99,14 +94,8 @@ def _finite_ratio(a: CompleteComputable, b: CompleteComputable) -> CompleteCompu
 
 
 def ratio(numerator: StateLike, denominator: StateLike) -> CompleteComputable:
-    """Evaluate a Complete Computable ratio.
-
-    The primary rules are the paper's rules: Null propagates; 0/0 is
-    Indeterminate; nonzero finite values divided by zero produce signed
-    infinity; finite/finite preserves the numerical quotient.
-    """
+    """Evaluate a Complete Computable ratio using explicit state rules."""
     a, b = coerce(numerator), coerce(denominator)
-
     if a.state == Null or b.state == Null:
         return CompleteComputable(Null)
     if a.state == Indeterminate or b.state == Indeterminate:
@@ -122,10 +111,7 @@ def ratio(numerator: StateLike, denominator: StateLike) -> CompleteComputable:
         return _finite_ratio(a, b)
     if a.is_finite and b.state in {PositiveInfinity, NegativeInfinity}:
         return CompleteComputable(Zero, 0.0)
-    if a.state in {PositiveInfinity, NegativeInfinity} and b.state in {
-        PositiveInfinity,
-        NegativeInfinity,
-    }:
+    if a.state in {PositiveInfinity, NegativeInfinity} and b.state in {PositiveInfinity, NegativeInfinity}:
         return CompleteComputable(Indeterminate)
     if a.state in {PositiveInfinity, NegativeInfinity} and b.is_finite:
         assert b.value is not None
@@ -135,7 +121,7 @@ def ratio(numerator: StateLike, denominator: StateLike) -> CompleteComputable:
 
 
 def multiply(left: StateLike, right: StateLike) -> CompleteComputable:
-    """Multiply Complete Computables using the same state semantics."""
+    """Multiply Complete Computables as a conservative arithmetic extension."""
     a, b = coerce(left), coerce(right)
     if a.state == Null or b.state == Null:
         return CompleteComputable(Null)
@@ -144,14 +130,9 @@ def multiply(left: StateLike, right: StateLike) -> CompleteComputable:
     if a.is_finite and b.is_finite:
         assert a.value is not None and b.value is not None
         return CompleteComputable.from_value(a.value * b.value)
-    if (a.state == Zero and b.state in {PositiveInfinity, NegativeInfinity}) or (
-        b.state == Zero and a.state in {PositiveInfinity, NegativeInfinity}
-    ):
+    if (a.state == Zero and b.state in {PositiveInfinity, NegativeInfinity}) or (b.state == Zero and a.state in {PositiveInfinity, NegativeInfinity}):
         return CompleteComputable(Indeterminate)
-    if a.state in {PositiveInfinity, NegativeInfinity} and b.state in {
-        PositiveInfinity,
-        NegativeInfinity,
-    }:
+    if a.state in {PositiveInfinity, NegativeInfinity} and b.state in {PositiveInfinity, NegativeInfinity}:
         positive = (a.state == PositiveInfinity) == (b.state == PositiveInfinity)
         return CompleteComputable(PositiveInfinity if positive else NegativeInfinity)
     if a.state in {PositiveInfinity, NegativeInfinity} and b.is_finite:
@@ -170,22 +151,22 @@ def multiply(left: StateLike, right: StateLike) -> CompleteComputable:
 
 
 def symbolic(value: StateLike) -> ComputableState:
-    """Project to the five Symbolic Computables."""
+    """Project to the five-state symbolic subset without hiding infinity."""
     state = coerce(value).state
     if state in {PositiveInfinity, NegativeInfinity}:
-        raise ValueError("Symbolic projection loses infinity information")
+        raise ValueError("Symbolic projection is undefined for infinity states")
     return state
 
 
 def naive(value: StateLike) -> ComputableState:
-    """Project to the four Naive Computables."""
+    """Project to the four-state naive subset."""
     state = coerce(value).state
     if state in {Indeterminate, PositiveInfinity, NegativeInfinity}:
         return Null
     return state
 
 
-# The paper's information ordering is partial: 0, +, and - are incomparable.
+# Rank is deliberately only a coarse hierarchy level; it is not the order.
 _INFORMATION_RANK = {
     Null: 0,
     Indeterminate: 1,
@@ -198,42 +179,37 @@ _INFORMATION_RANK = {
 
 
 def information_rank(value: StateLike) -> int:
-    """Return the level in the paper's information hierarchy."""
+    """Return the coarse level of a state in the information hierarchy."""
     return _INFORMATION_RANK[coerce(value).state]
 
 
 def at_least_as_informative(left: StateLike, right: StateLike) -> bool:
     """Return whether ``left`` is at least as informative as ``right``.
 
-    This implements the hierarchy by level.  The finite states 0, +, and -
-    remain mutually incomparable; the two infinity states are likewise kept
-    distinct.
+    The relation is a partial order: 0, +, and - are mutually incomparable,
+    and +Infinity and -Infinity are distinct maximal states.
     """
     a, b = coerce(left).state, coerce(right).state
-    if a == b:
-        return True
-    if b == Null:
+    if a == b or b == Null:
         return True
     if a == Null:
         return False
     if b == Indeterminate:
-        return a in {
-            Indeterminate,
-            Zero,
-            Positive,
-            Negative,
-            PositiveInfinity,
-            NegativeInfinity,
-        }
+        return a != Null
     if a == Indeterminate:
-        return b == Indeterminate
+        return False
     if b in {Zero, Positive, Negative}:
         return a == b or a in {PositiveInfinity, NegativeInfinity}
     if b == PositiveInfinity:
         return a == PositiveInfinity
     if b == NegativeInfinity:
         return a == NegativeInfinity
-    return _INFORMATION_RANK[a] >= _INFORMATION_RANK[b]
+    return False
+
+
+def information_comparable(left: StateLike, right: StateLike) -> bool:
+    """Return whether two states are comparable in the information order."""
+    return at_least_as_informative(left, right) or at_least_as_informative(right, left)
 
 
 COMPLETE_COMPUTABLES = tuple(ComputableState)
@@ -261,4 +237,5 @@ __all__ = [
     "naive",
     "information_rank",
     "at_least_as_informative",
+    "information_comparable",
 ]
