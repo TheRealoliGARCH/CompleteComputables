@@ -10,5 +10,9 @@ requires-python = ">=3.10"
 license = {file = "LICENSE"}
 
 [tool.pytest.ini_options]
-testpaths = ["test_complete_computables.py"]
+testpaths = [
+    "test_complete_computables.py",
+    "test_financial_economics.py",
+    "test_model_interface.py",
+]
 addopts = "-q"
