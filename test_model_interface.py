@@ -6,6 +6,7 @@ from model_interface import (
     DirectValuationModel,
     ModelAssumptions,
     ModelDiagnostics,
+    ModelOutput,
     Scenario,
     evaluate_scenarios,
 )
@@ -98,3 +99,32 @@ def test_model_output_automatically_builds_diagnostics():
     assert output.diagnostics is not None
     assert output.diagnostics.evidence_information_floor == 2
     assert output.diagnostics.valuation_information_level == 2
+
+
+def test_model_output_rejects_empty_model_name():
+    evidence = ValuationEvidence.from_pairs([("cost", 10), ("price", 10)])
+    valuation = SecurityValuation.from_values(10, 10)
+    with pytest.raises(ValueError):
+        ModelOutput(valuation, evidence, "   ")
+
+
+def test_model_assumption_validation_rejects_non_boolean_flags():
+    with pytest.raises(TypeError):
+        ModelAssumptions(allows_jumps=1)
+
+
+def test_model_assumption_validation_rejects_empty_notes():
+    with pytest.raises(ValueError):
+        ModelAssumptions(notes=("",))
+
+
+def test_direct_model_rejects_empty_evidence_field_names():
+    with pytest.raises(ValueError):
+        DirectValuationModel("", "price")
+    with pytest.raises(ValueError):
+        DirectValuationModel("cost", " ")
+
+
+def test_scenario_rejects_blank_label():
+    with pytest.raises(ValueError):
+        Scenario.from_values(1, 2, "   ")
